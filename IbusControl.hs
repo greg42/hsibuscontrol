@@ -99,17 +99,18 @@ data CdPlayerState = CdPlayerState {
 
 -- | This function performs the CD player emulation. It responds to the radio's
 -- poll requests and makes the system think that a player is connected.
-cdPlayerEmulator :: (MonadState CdPlayerState m, Functor m) => IbusEvent -> m OpenBMMessage
+cdPlayerEmulator :: (MonadState CdPlayerState m, Functor m) => IbusEvent -> m (Maybe OpenBMMessage)
 cdPlayerEmulator evt = do
    playing  <- cdPlayerPlaying <$> get
    case evt of
-      CdPing      -> return cdActive
-      CdGetState  -> return (if playing then cdPlaying else cdNotPlaying)
-      CdPlay      -> modify (\s -> s {cdPlayerPlaying = True}) >> return cdPlaying
-      CdPause     -> modify (\s -> s {cdPlayerPlaying = True}) >> return cdPlaying
-      CdStop      -> modify (\s -> s {cdPlayerPlaying = False}) >> return cdNotPlaying
-      CdPrevTrack -> modify (\s -> s {cdPlayerPlaying = True}) >> return cdPlaying
-      CdNextTrack -> modify (\s -> s {cdPlayerPlaying = True}) >> return cdPlaying
+      CdPing      -> return $ Just cdActive
+      CdGetState  -> return $ Just (if playing then cdPlaying else cdNotPlaying)
+      CdPlay      -> modify (\s -> s {cdPlayerPlaying = True})  >> (return $ Just cdPlaying)
+      CdPause     -> modify (\s -> s {cdPlayerPlaying = True})  >> (return $ Just cdPlaying)
+      CdStop      -> modify (\s -> s {cdPlayerPlaying = False}) >> (return $ Just cdNotPlaying)
+      CdPrevTrack -> modify (\s -> s {cdPlayerPlaying = True})  >> (return $ Just cdPlaying)
+      CdNextTrack -> modify (\s -> s {cdPlayerPlaying = True})  >> (return $ Just cdPlaying)
+      _           -> return Nothing
 
 -- | The CD player main thread
 cdPlayerThread :: OpenBMHandle -> OpenBMHandle -> StateT CdPlayerState IO (TVar CdPlayerState)
@@ -127,7 +128,9 @@ cdPlayerThread rcv send = do
       when (evt == CdGetState) $
          (liftIO $ repeatedRestart timer >> return ())
       response <- cdPlayerEmulator evt
-      liftIO $ sendOpenBMHandle send response
+      case response of
+         Just r  -> liftIO $ sendOpenBMHandle send r
+         Nothing -> return ()
       curState <- get
       liftIO $ atomically $ writeTVar tv curState
    return tv
